@@ -162,13 +162,27 @@ def consulta():
     except Exception as e:
         return jsonify({'error': f'Error al conectar con el Catastro: {str(e)}'}), 502
 
-    lerr = data.get('consulta_dnprcResult', {}).get('lerr', {}).get('err', {})
+    # El Catastro a veces devuelve una lista en el nivel raíz
+    if isinstance(data, list):
+        data = data[0] if data else {}
+
+    resultado = data.get('consulta_dnprcResult', data)
+    if isinstance(resultado, list):
+        resultado = resultado[0] if resultado else {}
+
+    lerr = resultado.get('lerr', {})
+    if isinstance(lerr, list):
+        lerr = lerr[0] if lerr else {}
+    lerr = lerr.get('err', {}) if isinstance(lerr, dict) else {}
     if lerr:
-        cod = lerr.get('cod', '')
-        msg = lerr.get('msg', 'Error desconocido del Catastro')
+        cod = lerr.get('cod', '') if isinstance(lerr, dict) else ''
+        msg = lerr.get('msg', 'Error desconocido del Catastro') if isinstance(lerr, dict) else str(lerr)
         return jsonify({'error': f'Catastro: {msg} (código {cod})'}), 404
 
-    inmuebles_raw = data.get('consulta_dnprcResult', {}).get('lrcdnp', {}).get('rcdnp', [])
+    lrcdnp = resultado.get('lrcdnp', {})
+    if isinstance(lrcdnp, list):
+        lrcdnp = lrcdnp[0] if lrcdnp else {}
+    inmuebles_raw = lrcdnp.get('rcdnp', []) if isinstance(lrcdnp, dict) else []
     if not inmuebles_raw:
         return jsonify({'error': 'No se encontraron datos para esta referencia catastral.'}), 404
 

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cambio de Uso — Catastro</title>
+  <style>
+    :root {
+      --bg: #f5f4f0;
+      --card: #ffffff;
+      --border: #e2e0d8;
+      --text: #1a1a18;
+      --muted: #6b6b66;
+      --hint: #9e9e98;
+      --green-bg: #eaf3de;
+      --green-text: #3b6d11;
+      --red-bg: #fcebeb;
+      --red-text: #a32d2d;
+      --blue-bg: #e6f1fb;
+      --blue-text: #185fa5;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .container { max-width: 480px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
+    .subtitle { font-size: 14px; color: var(--muted); margin-top: 4px; }
+    .header { margin-bottom: 2rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 500; letter-spacing: 0.02em; }
+    input[type="text"] {
+      width: 100%; padding: 12px 14px; font-size: 16px;
+      border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--bg); color: var(--text);
+      outline: none; transition: border-color 0.15s;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      letter-spacing: 0.05em;
+    }
+    input[type="text"]:focus { border-color: #aaa; }
+    .btn { width: 100%; padding: 13px; font-size: 16px; font-weight: 600;
+      background: var(--text); color: var(--card);
+      border: none; border-radius: var(--radius-sm); cursor: pointer;
+      margin-top: 10px; transition: opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-demo { width: 100%; padding: 11px; font-size: 14px; color: var(--muted);
+      background: transparent; border: 1px dashed var(--border);
+      border-radius: var(--radius-sm); cursor: pointer; margin-top: 0.5rem;
+    }
+    .result-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-top: 1.5rem; }
+    .result-header { padding: 1.25rem; border-bottom: 1px solid var(--border); }
+    .ref-code { font-family: monospace; font-size: 12px; color: var(--hint); letter-spacing: 0.05em; }
+    .address { font-size: 16px; font-weight: 600; margin-top: 4px; line-height: 1.4; }
+    .uso-badge { display: inline-block; margin-top: 8px; font-size: 12px; padding: 4px 10px;
+      border-radius: 99px; background: var(--blue-bg); color: var(--blue-text);
+      font-weight: 500;
+    }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; }
+    .metric { padding: 1rem 1.25rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .metric:nth-child(even) { border-right: none; }
+    .metric:nth-last-child(-n+2) { border-bottom: none; }
+    .metric-label { font-size: 12px; color: var(--hint); }
+    .metric-value { font-size: 24px; font-weight: 600; margin-top: 2px; }
+    .metric-unit { font-size: 12px; color: var(--hint); }
+    .calc { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+    .calc-title { font-size: 12px; color: var(--hint); font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 10px; }
+    .step { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; font-size: 14px; }
+    .step-op { color: var(--hint); min-width: 18px; font-family: monospace; }
+    .step-desc { color: var(--muted); flex: 1; }
+    .step-val { font-family: monospace; font-size: 14px; font-weight: 600; }
+    .verdict { padding: 1.25rem; display: flex; align-items: center; gap: 14px; }
+    .verdict.viable { background: var(--green-bg); }
+    .verdict.no-viable { background: var(--red-bg); }
+    .verdict-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; font-weight: 700; }
+    .viable .verdict-icon { background: var(--green-text); color: white; }
+    .no-viable .verdict-icon { background: var(--red-text); color: white; }
+    .verdict-title { font-size: 16px; font-weight: 600; }
+    .viable .verdict-title { color: var(--green-text); }
+    .no-viable .verdict-title { color: var(--red-text); }
+    .verdict-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    .units-list { padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
+    .units-title { font-size: 12px; color: var(--hint); font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 10px; }
+    .unit-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .unit-item:last-child { border-bottom: none; }
+    .unit-info { color: var(--muted); }
+    .unit-sup { font-family: monospace; font-weight: 600; }
+    .loading { text-align: center; padding: 2.5rem 1rem; }
+    .spinner { width: 30px; height: 30px; border: 2px solid var(--border); border-top-color: var(--text); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 14px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: var(--muted); }
+    .error-card { background: var(--red-bg); border: 1px solid #f7c1c1; border-radius: var(--radius); padding: 1.25rem; margin-top: 1.5rem; }
+    .error-title { font-size: 15px; font-weight: 600; color: var(--red-text); }
+    .error-detail { font-size: 13px; color: var(--muted); margin-top: 6px; }
+    .config-note { font-size: 12px; color: var(--hint); text-align: center; margin-top: 1rem; }
+    .config-note a { color: var(--blue-text); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Cambio de uso</h1>
+      <p class="subtitle">Viabilidad según el Catastro</p>
+    </div>
+
+    <div class="card">
+      <label>Referencia catastral</label>
+      <input type="text" id="refInput" placeholder="ej. 9872023VH5797S0001WX" maxlength="20" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" />
+      <button class="btn" id="searchBtn" onclick="buscar()">Consultar</button>
+      <button class="btn-demo" onclick="cargarDemo()">Usar ejemplo: 9872023VH5797S0001WX</button>
+    </div>
+
+    <p class="config-note" id="configNote"></p>
+
+    <div id="resultArea"></div>
+  </div>
+
+  <script>
+    // ⚠️ CAMBIA ESTA URL por la de tu backend en Railway
+    const BACKEND_URL = 'https://TU-APP.up.railway.app';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (BACKEND_URL.includes('TU-APP')) {
+        document.getElementById('configNote').innerHTML =
+          '⚠️ Configura la URL del backend. <a href="#" onclick="alert(\'Edita el archivo index.html y reemplaza TU-APP por tu URL de Railway\')">¿Cómo?</a>';
+      }
+    });
+
+    async function buscar() {
+      const ref = document.getElementById('refInput').value.trim().toUpperCase().replace(/\s/g, '');
+      if (ref.length < 14) {
+        showError('Referencia no válida', 'Introduce una referencia catastral de al menos 14 caracteres.');
+        return;
+      }
+      await llamarBackend(ref);
+    }
+
+    function cargarDemo() {
+      document.getElementById('refInput').value = '9872023VH5797S0001WX';
+      llamarBackend('9872023VH5797S0001WX');
+    }
+
+    async function llamarBackend(ref) {
+      document.getElementById('resultArea').innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <p class="loading-text">Consultando el Catastro...</p>
+        </div>`;
+      document.getElementById('searchBtn').disabled = true;
+
+      try {
+        const resp = await fetch(`${BACKEND_URL}/consulta?ref=${encodeURIComponent(ref)}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+          showError('Error del Catastro', data.error || 'Error desconocido');
+          return;
+        }
+        mostrarResultado(data);
+      } catch (e) {
+        showError('No se pudo conectar', 'Asegúrate de que el backend está activo y la URL es correcta.<br><br>' + e.message);
+      } finally {
+        document.getElementById('searchBtn').disabled = false;
+      }
+    }
+
+    function mostrarResultado(d) {
+      const esViable = d.viable;
+      const unidadesHTML = d.unidades.map(u => `
+        <div class="unit-item">
+          <div>
+            <div style="font-weight:500">${u.planta ? 'Planta ' + u.planta : ''}${u.puerta ? ' · ' + u.puerta : ''}</div>
+            <div class="unit-info">${u.uso_texto}</div>
+          </div>
+          <div class="unit-sup">${Math.round(u.superficie)} m²</div>
+        </div>`).join('');
+
+      document.getElementById('resultArea').innerHTML = `
+        <div class="result-card">
+          <div class="result-header">
+            <div class="ref-code">${d.referencia}</div>
+            <div class="address">${d.direccion || 'Sin dirección'}</div>
+            <span class="uso-badge">${d.uso_texto}</span>
+          </div>
+
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Superficie total</div>
+              <div class="metric-value">${Math.round(d.superficie_total)}</div>
+              <div class="metric-unit">m²</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Unidades existentes</div>
+              <div class="metric-value">${d.n_unidades}</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Densidad máxima</div>
+              <div class="metric-value">${d.densidad.toFixed(1)}</div>
+              <div class="metric-unit">sup ÷ 70</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Margen</div>
+              <div class="metric-value" style="color:${esViable ? 'var(--green-text)' : 'var(--red-text)'}">
+                ${d.margen > 0 ? '+' : ''}${d.margen.toFixed(1)}
+              </div>
+            </div>
+          </div>
+
+          <div class="calc">
+            <div class="calc-title">Cálculo</div>
+            <div class="step"><span class="step-op">1.</span><span class="step-desc">Superficie total</span><span class="step-val">${Math.round(d.superficie_total)} m²</span></div>
+            <div class="step"><span class="step-op">÷</span><span class="step-desc">Factor de densidad</span><span class="step-val">70</span></div>
+            <div class="step"><span class="step-op">=</span><span class="step-desc">Densidad máxima</span><span class="step-val">${d.densidad.toFixed(2)} uds</span></div>
+            <div class="step"><span class="step-op">−</span><span class="step-desc">Unidades existentes</span><span class="step-val">${d.n_unidades}</span></div>
+            <div class="step"><span class="step-op">=</span><span class="step-desc">Capacidad disponible</span><span class="step-val" style="color:${esViable ? 'var(--green-text)' : 'var(--red-text)'}">${d.margen > 0 ? '+' : ''}${d.margen.toFixed(2)}</span></div>
+          </div>
+
+          <div class="verdict ${esViable ? 'viable' : 'no-viable'}">
+            <div class="verdict-icon">${esViable ? '✓' : '✗'}</div>
+            <div>
+              <div class="verdict-title">${esViable ? 'Cambio de uso viable' : 'Cambio de uso no viable'}</div>
+              <div class="verdict-sub">${esViable ? 'Capacidad disponible: ' + d.margen.toFixed(1) + ' unidades' : 'Déficit de ' + Math.abs(d.margen).toFixed(1) + ' unidades'}</div>
+            </div>
+          </div>
+
+          ${d.unidades.length > 1 ? `<div class="units-list"><div class="units-title">Unidades del inmueble</div>${unidadesHTML}</div>` : ''}
+        </div>`;
+    }
+
+    function showError(title, detail) {
+      document.getElementById('resultArea').innerHTML = `
+        <div class="error-card">
+          <div class="error-title">${title}</div>
+          <div class="error-detail">${detail}</div>
+        </div>`;
+    }
+  </script>
+</body>
+</html>

@@ -1,11 +1,13 @@
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 import requests
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 CORS(app)
 
-CATASTRO_URL = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC"
+CATASTRO_URL = "https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC"
 
 FACTOR_DENSIDAD = 70   # m2 por vivienda para calcular la densidad
 M2_APARTAMENTO = 34    # m2 por apartamento de espacio unico
@@ -154,22 +156,9 @@ function err(t,m){document.getElementById('out').innerHTML=`<div class="err"><di
 </html>"""
 
 
-def dic(x):
-    """Devuelve siempre un diccionario (el Catastro a veces devuelve listas)."""
-    if isinstance(x, list):
-        x = x[0] if x else {}
-    return x if isinstance(x, dict) else {}
-
-
-def lista(x):
-    if not x:
-        return []
-    return x if isinstance(x, list) else [x]
-
-
 def es_vivienda(uso):
     u = (uso or '').upper()
-    return u.startswith('V') or 'VIVIENDA' in u or 'RESIDENCIAL' in u
+    return 'VIVIENDA' in u or 'RESIDENCIAL' in u
 
 
 def es_sotano(planta):
@@ -177,64 +166,92 @@ def es_sotano(planta):
     return p.startswith('-') or p in ('SS', 'SM', 'ST', 'S')
 
 
-def leer_unidades(ref_consulta):
-    """Consulta al Catastro y devuelve (lista_de_unidades, error, codigo_http)."""
+def quitar_ns(root):
+    """Elimina los espacios de nombres del XML para poder buscar etiquetas sencillas."""
+    for el in root.iter():
+        if '}' in el.tag:
+            el.tag = el.tag.split('}', 1)[1]
+    return root
+
+
+def texto(el, ruta):
+    n = el.find(ruta) if el is not None else None
+    return (n.text or '').strip() if n is not None and n.text else ''
+
+
+def pedir_catastro(rc):
+    """Una consulta al Catastro. Devuelve (xml, error, codigo_http)."""
     try:
-        r = requests.get(CATASTRO_URL, params={'RefCatastral': ref_consulta}, timeout=10)
+        r = requests.get(CATASTRO_URL, params={'Provincia': '', 'Municipio': '', 'RC': rc}, timeout=15)
         r.raise_for_status()
-        data = r.json()
+        root = quitar_ns(ET.fromstring(r.content))
     except requests.exceptions.Timeout:
         return None, 'El Catastro tardó demasiado. Inténtalo de nuevo.', 504
+    except ET.ParseError:
+        return None, 'El Catastro devolvió una respuesta que no se puede leer.', 502
     except Exception as e:
         return None, f'Error al conectar con el Catastro: {str(e)}', 502
 
-    data = dic(data)
-    resultado = dic(data.get('consulta_dnprcResult', data))
+    err = root.find('.//lerr/err')
+    if err is not None:
+        return None, f"Catastro: {texto(err, 'des')} (código {texto(err, 'cod')})", 404
+    return root, None, 200
 
-    lerr = dic(dic(resultado.get('lerr', {})).get('err', {}))
-    if lerr:
-        cod = lerr.get('cod', '')
-        msg = lerr.get('msg', 'Error desconocido del Catastro')
-        return None, f'Catastro: {msg} (código {cod})', 404
 
-    lrcdnp = dic(resultado.get('lrcdnp', {}))
-    inmuebles_raw = lista(lrcdnp.get('rcdnp', []))
-    if not inmuebles_raw:
+def detalle_unidad(rc):
+    """Uso y superficie de una unidad (referencia de 20 caracteres)."""
+    root, error, _ = pedir_catastro(rc)
+    if error:
+        return None
+    debi = root.find('.//debi')
+    if debi is None:
+        return None
+    try:
+        sup = float(texto(debi, 'sfc').replace(',', '.') or 0)
+    except ValueError:
+        sup = 0.0
+    return texto(debi, 'luso'), sup
+
+
+def leer_unidades(rc_consulta):
+    """Devuelve (lista_de_unidades, error, codigo_http)."""
+    root, error, codigo = pedir_catastro(rc_consulta)
+    if error:
+        return None, error, codigo
+
+    items = root.findall('.//lrcdnp/rcdnp') or root.findall('.//bico/bi')
+    if not items:
         return None, 'No se encontraron datos para esta referencia catastral.', 404
 
-    unidades = []
-    for item in inmuebles_raw:
-        item = dic(item)
-        rc = dic(item.get('rc', {}))
-        debi = dic(item.get('debi', {}))
-        dt = dic(item.get('dt', {}))
-        lourb = dic(dic(dic(dt.get('locs', {})).get('lous', {})).get('lourb', {}))
-        dir_ = dic(lourb.get('dir', {}))
-        loint = dic(lourb.get('loint', {}))
-
-        try:
-            sup = float(debi.get('sfc') or debi.get('stot') or 0)
-        except (TypeError, ValueError):
-            sup = 0.0
-
-        uso_cod = str(debi.get('luso', '')).upper()
-        ref_completa = (rc.get('pc1', '') + rc.get('pc2', '') + rc.get('car', '') +
-                        rc.get('cc1', '') + rc.get('cc2', '')).strip()
-
-        unidades.append({
-            'referencia': ref_completa,
-            'uso_codigo': uso_cod,
-            'uso_texto': USOS.get(uso_cod, debi.get('luso') or 'Sin especificar'),
-            'es_vivienda': es_vivienda(uso_cod),
-            'superficie': sup,
-            'via': dir_.get('nv', ''),
-            'numero': dir_.get('pnp', ''),
-            'municipio': dt.get('nm', ''),
-            'cp': lourb.get('dp', ''),
-            'planta': loint.get('pt', ''),
-            'puerta': loint.get('pu', ''),
+    base = []
+    for it in items:
+        rc = it.find('.//rc')
+        dt = it.find('.//dt')
+        lourb = dt.find('.//lourb') if dt is not None else None
+        base.append({
+            'referencia': ''.join(texto(rc, c) for c in ('pc1', 'pc2', 'car', 'cc1', 'cc2')),
+            'via': texto(lourb, 'dir/nv'),
+            'numero': texto(lourb, 'dir/pnp'),
+            'municipio': texto(dt, 'nm'),
+            'cp': texto(lourb, 'dp'),
+            'planta': texto(lourb, 'loint/pt'),
+            'puerta': texto(lourb, 'loint/pu'),
         })
 
+    # Uso y superficie de cada unidad: una consulta por referencia, en paralelo
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        detalles = list(ex.map(detalle_unidad, [b['referencia'] for b in base]))
+
+    fallos = sum(1 for d in detalles if d is None)
+    if fallos:
+        return None, f'No se pudieron leer los datos de {fallos} unidades del Catastro. Inténtalo de nuevo.', 502
+
+    unidades = []
+    for b, (uso, sup) in zip(base, detalles):
+        b['uso_texto'] = uso or 'Sin especificar'
+        b['es_vivienda'] = es_vivienda(uso)
+        b['superficie'] = sup
+        unidades.append(b)
     return unidades, None, 200
 
 
